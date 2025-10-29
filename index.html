@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>专业头像生成器</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- 首页：上传和选择风格 -->
+    <div id="uploadPage" class="page active">
+        <div class="container">
+            <header class="header">
+                <h1>专业头像生成器</h1>
+                <p class="subtitle">上传你的照片，选择风格，生成专业头像</p>
+            </header>
+
+            <!-- 上传区域 -->
+            <div class="upload-section">
+                <div id="dropZone" class="drop-zone">
+                    <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                    <p class="upload-text">拖拽图片到此处或点击选择</p>
+                    <p class="upload-hint">支持 JPG, PNG, WEBP 格式，最大 10MB</p>
+                    <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp" hidden>
+                </div>
+
+                <!-- 图片预览 -->
+                <div id="previewSection" class="preview-section hidden">
+                    <div class="preview-container">
+                        <img id="previewImage" src="" alt="预览图片">
+                        <button id="removeImage" class="remove-btn" type="button">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 风格选择 -->
+            <div id="styleSection" class="style-section hidden">
+                <h2 class="section-title">选择头像风格</h2>
+                <div class="style-grid">
+                    <div class="style-card" data-style="business">
+                        <div class="style-icon">💼</div>
+                        <h3 class="style-name">商务正式</h3>
+                        <p class="style-desc">适合 LinkedIn、求职简历、企业官网</p>
+                        <ul class="style-features">
+                            <li>正式专业</li>
+                            <li>背景简洁</li>
+                            <li>职业形象</li>
+                        </ul>
+                    </div>
+
+                    <div class="style-card" data-style="creative">
+                        <div class="style-icon">🎨</div>
+                        <h3 class="style-name">创意活力</h3>
+                        <p class="style-desc">适合社交媒体、个人品牌、创意行业</p>
+                        <ul class="style-features">
+                            <li>活泼有个性</li>
+                            <li>色彩丰富</li>
+                            <li>富有创意</li>
+                        </ul>
+                    </div>
+
+                    <div class="style-card" data-style="artistic">
+                        <div class="style-icon">🖼️</div>
+                        <h3 class="style-name">艺术写真</h3>
+                        <p class="style-desc">适合艺术家简介、个人作品集</p>
+                        <ul class="style-features">
+                            <li>艺术化处理</li>
+                            <li>质感强</li>
+                            <li>氛围感足</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 生成按钮 -->
+            <div id="generateSection" class="generate-section hidden">
+                <button id="generateBtn" class="generate-btn" disabled>
+                    生成专业头像
+                </button>
+            </div>
+
+            <!-- 错误提示 -->
+            <div id="errorMessage" class="error-message hidden"></div>
+        </div>
+    </div>
+
+    <!-- 生成中页面 -->
+    <div id="processingPage" class="page">
+        <div class="container processing-container">
+            <div class="spinner"></div>
+            <h2 class="processing-title">正在生成您的专业头像...</h2>
+            <p class="processing-text">这可能需要几秒钟，请稍候</p>
+        </div>
+    </div>
+
+    <!-- 结果展示页面 -->
+    <div id="resultPage" class="page">
+        <div class="container">
+            <header class="header">
+                <h1>生成完成</h1>
+                <p class="subtitle">查看您的专业头像</p>
+            </header>
+
+            <div class="result-container">
+                <div class="result-column">
+                    <h3 class="result-label">原始照片</h3>
+                    <div class="result-image-wrapper">
+                        <img id="originalImage" src="" alt="原始照片" class="result-image">
+                    </div>
+                </div>
+
+                <div class="result-divider"></div>
+
+                <div class="result-column">
+                    <h3 class="result-label">生成头像</h3>
+                    <div class="result-image-wrapper">
+                        <img id="generatedImage" src="" alt="生成头像" class="result-image">
+                    </div>
+                </div>
+            </div>
+
+            <div class="result-actions">
+                <button id="downloadBtn" class="action-btn primary">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    下载头像
+                </button>
+                <button id="regenerateBtn" class="action-btn secondary">
+                    重新生成
+                </button>
+                <button id="backToHomeBtn" class="action-btn secondary">
+                    返回首页
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
