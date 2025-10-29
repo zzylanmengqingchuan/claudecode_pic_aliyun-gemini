@@ -4,11 +4,12 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const DASHSCOPE_API_KEY = process.env.DASHSCOPE_API_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 // 中间件
 app.use(cors());
@@ -46,22 +47,47 @@ const upload = multer({
     }
 });
 
-// 风格映射到阿里云百炼的 style_index
-const STYLE_INDEX_MAP = {
-    business: 0,   // 商务正式风格
-    creative: 3,   // 创意活力风格
-    artistic: 6    // 艺术肖像风格
+// 风格对应的 Prompt 配置
+const STYLE_PROMPTS = {
+    business: `Transform this person's photo into a professional business headshot with the following characteristics:
+- Professional and formal appearance
+- Clean, neutral background (solid color or subtle gradient)
+- Professional business attire
+- Proper lighting that highlights facial features
+- Corporate headshot quality
+- Maintain the person's facial features and likeness
+- Professional color grading suitable for LinkedIn or corporate profiles
+- High quality, sharp details`,
+
+    creative: `Transform this person's photo into a creative and vibrant portrait with the following characteristics:
+- Dynamic and energetic composition
+- Vibrant and rich colors
+- Creative and artistic styling
+- Modern and trendy appearance
+- Unique personality expression
+- Maintain the person's facial features and likeness
+- Suitable for social media and personal branding
+- Eye-catching visual appeal
+- High quality with creative flair`,
+
+    artistic: `Transform this person's photo into an artistic portrait with the following characteristics:
+- Artistic and cinematic quality
+- Dramatic lighting with strong shadows and highlights
+- Textured or atmospheric background
+- Fine art photography aesthetic
+- Strong sense of mood and atmosphere
+- Maintain the person's facial features and likeness
+- Suitable for artist profiles and portfolios
+- Professional artistic treatment
+- High quality with artistic depth`
 };
 
 // 生成头像的 API 接口
 app.post('/api/generate-avatar', upload.single('image'), async (req, res) => {
     console.log('收到生成头像请求');
-    console.log('req.file:', req.file ? req.file.filename : '无');
-    console.log('req.body.style:', req.body.style);
 
     try {
         if (!req.file) {
-            console.log('错误: 未上传图片文件');
             return res.status(400).json({
                 success: false,
                 error: '未上传图片文件'
@@ -69,9 +95,7 @@ app.post('/api/generate-avatar', upload.single('image'), async (req, res) => {
         }
 
         const style = req.body.style;
-        if (!style || STYLE_INDEX_MAP[style] === undefined) {
-            console.log('错误: 无效的风格选择, style =', style);
-            console.log('可用的风格:', Object.keys(STYLE_INDEX_MAP));
+        if (!style || !STYLE_PROMPTS[style]) {
             return res.status(400).json({
                 success: false,
                 error: '无效的风格选择'
@@ -85,13 +109,13 @@ app.post('/api/generate-avatar', upload.single('image'), async (req, res) => {
         const base64Image = imageBuffer.toString('base64');
         const mimeType = req.file.mimetype;
 
-        console.log('调用阿里云百炼 API...');
+        // 获取对应风格的 prompt
+        const prompt = STYLE_PROMPTS[style];
 
-        // 调用阿里云百炼人像风格重绘 API
-        const generatedImageUrl = await generateImageWithDashScope(req.file.path, style);
+        console.log('调用 Gemini API...');
 
-        // 下载生成的图片
-        const generatedImageData = await downloadImage(generatedImageUrl);
+        // 调用 Google Gemini API 生成图片
+        const generatedImageData = await generateImageWithGemini(base64Image, mimeType, prompt);
 
         // 清理上传的临时文件
         fs.unlinkSync(req.file.path);
@@ -123,42 +147,54 @@ app.post('/api/generate-avatar', upload.single('image'), async (req, res) => {
     }
 });
 
-// 使用阿里云百炼人像风格重绘 API
-async function generateImageWithDashScope(imagePath, style) {
+// 使用原生 HTTPS 调用 Gemini API
+function generateImageWithGemini(base64Image, mimeType, userPrompt) {
     return new Promise((resolve, reject) => {
-        console.log('准备调用阿里云百炼人像风格重绘模型...');
+        console.log('准备调用 Gemini 2.5 Flash Image 模型...');
 
-        const styleIndex = STYLE_INDEX_MAP[style];
-
-        // 读取图片并转换为 base64
-        const imageBuffer = fs.readFileSync(imagePath);
-        const base64Image = imageBuffer.toString('base64');
-        const imageUrl = `data:image/jpeg;base64,${base64Image}`;
+        // 构建完整的 prompt
+        const fullPrompt = `Based on the provided portrait photo, ${userPrompt}`;
 
         // 构建请求体
         const requestBody = JSON.stringify({
-            model: 'wanx-style-repaint-v1',
-            input: {
-                image_url: imageUrl,
-                style_index: styleIndex
-            }
+            contents: [
+                {
+                    parts: [
+                        {
+                            text: fullPrompt
+                        },
+                        {
+                            inlineData: {
+                                mimeType: mimeType,
+                                data: base64Image
+                            }
+                        }
+                    ]
+                }
+            ]
         });
 
         // API 配置
         const options = {
-            hostname: 'dashscope.aliyuncs.com',
+            hostname: 'generativelanguage.googleapis.com',
             port: 443,
-            path: '/api/v1/services/aigc/image-generation/generation',
+            path: `/v1beta/models/gemini-2.5-flash-image:generateContent?key=${GEMINI_API_KEY}`,
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${DASHSCOPE_API_KEY}`,
                 'Content-Type': 'application/json',
-                'X-DashScope-Async': 'enable'
+                'Content-Length': Buffer.byteLength(requestBody)
             },
-            timeout: 120000
+            timeout: 120000 // 120 秒超时
         };
 
-        console.log('发送请求到阿里云百炼 API...');
+        // 如果设置了代理，使用代理
+        const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+        if (proxyUrl) {
+            options.agent = new HttpsProxyAgent(proxyUrl);
+            console.log(`使用代理: ${proxyUrl}`);
+        }
+
+        console.log('发送 HTTPS 请求到 Gemini API...');
 
         const req = https.request(options, (res) => {
             let data = '';
@@ -178,16 +214,25 @@ async function generateImageWithDashScope(imagePath, style) {
 
                 try {
                     const response = JSON.parse(data);
-                    console.log('成功创建任务，task_id:', response.output?.task_id);
+                    console.log('成功解析 API 响应');
 
-                    if (!response.output || !response.output.task_id) {
-                        reject(new Error('API 响应中未找到 task_id'));
-                        return;
+                    // 提取生成的图片数据
+                    if (response.candidates && response.candidates.length > 0) {
+                        const parts = response.candidates[0].content.parts;
+
+                        for (const part of parts) {
+                            if (part.text) {
+                                console.log('API 响应文本:', part.text);
+                            }
+                            if (part.inlineData) {
+                                console.log('成功提取生成的图片');
+                                resolve(part.inlineData.data);
+                                return;
+                            }
+                        }
                     }
 
-                    // 轮询查询任务结果
-                    pollTaskResult(response.output.task_id, resolve, reject);
-
+                    reject(new Error('API 响应中未找到生成的图片'));
                 } catch (error) {
                     console.error('解析 API 响应失败:', error);
                     reject(new Error(`解析响应失败: ${error.message}`));
@@ -205,97 +250,9 @@ async function generateImageWithDashScope(imagePath, style) {
             reject(new Error('请求超时，请稍后重试'));
         });
 
+        // 发送请求体
         req.write(requestBody);
         req.end();
-    });
-}
-
-// 轮询查询任务结果
-function pollTaskResult(taskId, resolve, reject, retries = 0) {
-    const maxRetries = 30; // 最多轮询30次
-    const interval = 2000; // 每2秒查询一次
-
-    if (retries >= maxRetries) {
-        reject(new Error('任务超时，生成失败'));
-        return;
-    }
-
-    setTimeout(() => {
-        console.log(`查询任务状态 (第 ${retries + 1} 次)...`);
-
-        const options = {
-            hostname: 'dashscope.aliyuncs.com',
-            port: 443,
-            path: `/api/v1/tasks/${taskId}`,
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${DASHSCOPE_API_KEY}`
-            }
-        };
-
-        const req = https.request(options, (res) => {
-            let data = '';
-
-            res.on('data', (chunk) => {
-                data += chunk;
-            });
-
-            res.on('end', () => {
-                try {
-                    const response = JSON.parse(data);
-                    console.log('任务状态:', response.output?.task_status);
-
-                    if (response.output?.task_status === 'SUCCEEDED') {
-                        // 任务成功，获取图片 URL
-                        const imageUrl = response.output?.results?.[0]?.url;
-                        if (imageUrl) {
-                            console.log('图片生成成功:', imageUrl);
-                            resolve(imageUrl);
-                        } else {
-                            reject(new Error('API 响应中未找到生成的图片 URL'));
-                        }
-                    } else if (response.output?.task_status === 'FAILED') {
-                        reject(new Error('图片生成任务失败'));
-                    } else {
-                        // 任务还在处理中，继续轮询
-                        pollTaskResult(taskId, resolve, reject, retries + 1);
-                    }
-                } catch (error) {
-                    reject(new Error(`解析任务结果失败: ${error.message}`));
-                }
-            });
-        });
-
-        req.on('error', (error) => {
-            reject(new Error(`查询任务失败: ${error.message}`));
-        });
-
-        req.end();
-    }, interval);
-}
-
-// 下载图片并转换为 base64
-function downloadImage(imageUrl) {
-    return new Promise((resolve, reject) => {
-        https.get(imageUrl, (res) => {
-            if (res.statusCode !== 200) {
-                reject(new Error(`下载图片失败，状态码: ${res.statusCode}`));
-                return;
-            }
-
-            const chunks = [];
-            res.on('data', (chunk) => {
-                chunks.push(chunk);
-            });
-
-            res.on('end', () => {
-                const buffer = Buffer.concat(chunks);
-                const base64 = buffer.toString('base64');
-                resolve(base64);
-            });
-        }).on('error', (error) => {
-            reject(new Error(`下载图片失败: ${error.message}`));
-        });
     });
 }
 
@@ -304,9 +261,9 @@ app.get('/api/health', (req, res) => {
     res.json({
         status: 'ok',
         message: '服务运行正常',
-        apiKeyConfigured: !!DASHSCOPE_API_KEY,
-        model: 'wanx-style-repaint-v1',
-        provider: '阿里云百炼'
+        apiKeyConfigured: !!GEMINI_API_KEY,
+        model: 'gemini-2.5-flash-image',
+        provider: 'Google Gemini'
     });
 });
 
@@ -315,8 +272,8 @@ app.listen(PORT, () => {
     console.log(`===========================================`);
     console.log(`专业头像生成器服务已启动`);
     console.log(`服务地址: http://localhost:${PORT}`);
-    console.log(`API Key 已配置: ${DASHSCOPE_API_KEY ? '是' : '否'}`);
-    console.log(`使用模型: wanx-style-repaint-v1 (阿里云百炼)`);
+    console.log(`API Key 已配置: ${GEMINI_API_KEY ? '是' : '否'}`);
+    console.log(`使用模型: gemini-2.5-flash-image (Google Gemini)`);
     console.log(`===========================================`);
 });
 
