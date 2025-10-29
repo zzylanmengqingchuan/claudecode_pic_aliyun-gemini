@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # 专业头像生成器
 
 这是一个基于 Web 的专业头像生成应用，使用 Google Gemini API 实现真实的 AI 头像生成。
@@ -255,3 +256,7 @@ test07/
 ## 许可证
 
 本项目仅用于学习和演示目的。
+=======
+# claudecode_pic_aliyun-gemini
+调用api图片风格转换，阿里云api&amp;gemini的api
+>>>>>>> a8a1218c0b0f719df0f465d6ac6c530060165706
